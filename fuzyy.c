@@ -5,17 +5,18 @@
 //
 //#define Forward 1
 //#define Backward 0
-//#define PWM_MINIMO 0   // Valor mínimo necesario para romper la inercia (ajustar según pruebas)
-//#define PWM_MIN_DEADZONE 200  // Ajusta según tu motor
 //
-//volatile int16_t theta = 0;
-//uint8_t pulsadorAnterior; 
+//volatile int16_t theta = 0; 
 //uint8_t dir;
+//int16_t adcValue = 0;
 //
+//volatile uint16_t millisContador = 0;  // Para contar hasta 1000 ms
+//volatile int16_t encoder;
 //
-//uint16_t adcValue = 0;
+//float previousError = 0;
 //float pwmDuty;
 //float error;
+//
 //
 //// Variables para el sistema difuso
 //float ruleActivation1 = 0, ruleActivation2 = 0, ruleActivation3 = 0;
@@ -170,9 +171,7 @@
 //    }
 //}
 //
-//volatile uint16_t millisContador = 0;  // Para contar hasta 1000 ms
-//volatile uint16_t encoder;
-//float previousError = 0;
+//
 //
 //void temporizador_ISR(void) {
 //    millisContador++;  // Incrementar cada 1 ms
@@ -269,7 +268,7 @@
 //        
 //        
 //        
-//        printf("t: %d sp:%u en: %u e: %0.2f leyC: %.2f pwm: %.2f\n\r", 
+//        printf("theta: %d setPoint:%d encoder: %d error: %0.2f leyControl: %.2f pwm: %.2f\n\r", 
 //                  theta, adcValue, encoder,error,fuzzyControlOutput,pwmDuty);
 //        
 //        __delay_ms(100); // Delay pequeño para suavizar cambios

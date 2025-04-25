@@ -16,7 +16,7 @@
 //
 //
 //
-//uint16_t adcValue = 0;
+//int16_t adcValue = 0;
 //float pwmDuty;
 //
 //typedef struct {
@@ -107,7 +107,7 @@
 //}
 //
 //volatile uint16_t millisContador = 0;  // Para contar hasta 1000 ms
-//volatile uint16_t encoder;
+//volatile int16_t encoder;
 //
 //void temporizador_ISR(void) {
 //    millisContador++;  // Incrementar cada 1 ms
@@ -202,7 +202,7 @@
 //            }
 //        }
 //        
-//        printf("theta: %d  setpoint:%u encoder: %u error: %0.2f "
+//        printf("theta: %d  setpoint:%d encoder: %d error: %0.2f "
 //                "leyControl: %.2f pwmDuty: %.2f dir: %u \n\r", 
 //                  theta, adcValue, encoder,pid.error,pid.output,pwmDuty,dir);
 //        

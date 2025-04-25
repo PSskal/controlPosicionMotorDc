@@ -5,135 +5,70 @@
 
 #define Forward 1
 #define Backward 0
-
-volatile int16_t theta = 0; 
+#define PWM_MINIMO 0   // Valor mínimo necesario para romper la inercia (ajustar según pruebas)
+#define PWM_MIN_DEADZONE 150  // Ajusta según tu motor
+/*
+    Main application
+*/
+volatile int16_t theta = 0;
+uint8_t pulsadorAnterior; 
 uint8_t dir;
+
+
+
 int16_t adcValue = 0;
-
-volatile uint16_t millisContador = 0;  // Para contar hasta 1000 ms
-volatile int16_t encoder;
-
-float previousError = 0;
 float pwmDuty;
-float error;
 
+typedef struct {
+    float kp;
+    float ki;
+    float kd;
+    float error;
+    float errorLast;
+    float integral;
+    float derivative;
+    float output;
+    float maxOutput;
+    float dt; // Tiempo de muestreo
+} PIDController;
 
-// Variables para el sistema difuso
-float ruleActivation1 = 0, ruleActivation2 = 0, ruleActivation3 = 0;
-float ruleActivation4 = 0, ruleActivation5 = 0, ruleActivation6 = 0;
-float ruleActivation7 = 0, ruleActivation8 = 0, ruleActivation9 = 0;
-float maxNegativeOutput = 0, maxZeroOutput = 0, maxPositiveOutput = 0, fuzzyControlOutput = 0;
+PIDController pid;
 
-// Variables globales para almacenar los resultados de las funciones de membresía
-float errorNegative, errorZero, errorPositive;
-float derivativeNegative, derivativeZero, derivativePositive;
-float controlValueNegative, controlValueZero, controlValuePositive;
-
-
-// Conjuntos difusos
-float errorNegativeSet[4] = {-300, -300, -10, 0};
-float errorZeroSet[3] = {-10, 0, 10};
-float errorPositiveSet[4] = {0, 10, 300, 300};
-
-float derivativeNegativeSet[4] = {-400, -400, -200, 0};
-float derivativeZeroSet[3] = {-200, 0, 200};
-float derivativePositiveSet[4] = {0, 200, 400, 400};
-
-float controlNegativeSet[4] = {-500, -500, -150, 0};
-float controlZeroSet[3] = {-150, 0, 150};
-float controlPositiveSet[4] = {0, 150, 500, 500};
-
-float errorInput = 0, derivativeInput = 0;
-
-// Funciones de membresía
-float triangularMembership(float x, float a, float b, float c) {
-    if (x <= a || x >= c) {
-        return 0.0;
-    } else if (x >= a && x <= b) {
-        return (x - a) / (b - a);
-    } else if (x >= b && x <= c) {
-        return (c - x) / (c - b);
-    }
-    return 0.0;
+// Inicializa el controlador PID
+void PID_Init(PIDController* pid, float kp, float ki, float kd, float maxOutput, float dt) {
+    pid->kp = kp;
+    pid->ki = ki;
+    pid->kd = kd;
+    pid->error = 0;
+    pid->errorLast = 0;
+    pid->integral = 0;
+    pid->derivative = 0;
+    pid->output = 0;
+    pid->maxOutput = maxOutput;
+    pid->dt = dt;
 }
 
-float trapezoidalMembership(float x, float a, float b, float c, float d) {
-    if (x <= a || x >= d) {
-        return 0.0;
-    } else if (x >= a && x <= b) {
-        return (x - a) / (b - a);
-    } else if (x >= b && x <= c) {
-        return 1.0;
-    } else if (x >= c && x <= d) {
-        return (d - x) / (c - d);
-    }
-    return 0.0;
-}
+// Calcula la salida del PID
+void PID_Calculate(PIDController* pid, float setpoint, float current) {
+    // Calcular el error
+    pid->errorLast = pid->error;
+    pid->error = setpoint - current;
 
-// Funciones para calcular los valores reales de las leyes de control
-float calculateNegativeControlValue() {
-    return (((1 - maxNegativeOutput) * (controlNegativeSet[3] - controlNegativeSet[2]) + controlNegativeSet[2] + controlNegativeSet[1]) / 2); 
-}
+    // Calcular términos proporcional, integral y derivativo
+    float proportional = pid->kp * pid->error;
+    pid->integral += pid->ki * pid->error * pid->dt;
+    pid->derivative = pid->kd * (pid->error - pid->errorLast) / pid->dt;
 
-float calculateZeroControlValue() {
-    float A, B;
-    A = maxZeroOutput * (controlZeroSet[1] - controlZeroSet[0]) + controlZeroSet[0];
-    B = (1 - maxZeroOutput) * (controlZeroSet[2] - controlZeroSet[1]) + controlZeroSet[1];
-    return ((A + B) / 2);
-}
+    // Limitar la integral
+    if (pid->integral > pid->maxOutput) pid->integral = pid->maxOutput;
+    else if (pid->integral < -pid->maxOutput) pid->integral = -pid->maxOutput;
 
-float calculatePositiveControlValue() {
-    return ((maxPositiveOutput * (controlPositiveSet[1] - controlPositiveSet[0]) + controlPositiveSet[0] + controlPositiveSet[2]) / 2);
-}
+    // Calcular la salida total
+    pid->output = proportional + pid->integral + pid->derivative;
 
-// Función para inicializar las variables de membresía
-void initializeMembershipFunctions() {
-    // Inicializar las funciones de membresía del error
-    errorNegative = trapezoidalMembership(errorInput, errorNegativeSet[0], errorNegativeSet[1], errorNegativeSet[2], errorNegativeSet[3]);
-    errorZero = triangularMembership(errorInput, errorZeroSet[0], errorZeroSet[1], errorZeroSet[2]);
-    errorPositive = trapezoidalMembership(errorInput, errorPositiveSet[0], errorPositiveSet[1], errorPositiveSet[2], errorPositiveSet[3]);
-
-    // Inicializar las funciones de membresía de la derivada del error
-    derivativeNegative = trapezoidalMembership(derivativeInput, derivativeNegativeSet[0], derivativeNegativeSet[1], derivativeNegativeSet[2], derivativeNegativeSet[3]);
-    derivativeZero = triangularMembership(derivativeInput, derivativeZeroSet[0], derivativeZeroSet[1], derivativeZeroSet[2]);
-    derivativePositive = trapezoidalMembership(derivativeInput, derivativePositiveSet[0], derivativePositiveSet[1], derivativePositiveSet[2], derivativePositiveSet[3]);
-    
-    // Inicializar las leyes de control corregir hallar z
-    controlValueNegative = calculateNegativeControlValue();
-    controlValueZero = calculateZeroControlValue();
-    controlValuePositive = calculatePositiveControlValue();
-}
-// Control difuso
-void fuzzyControl() {
-    
-    ruleActivation1 = fmin(derivativeNegative, errorNegative); // Error grande y disminuyendo rápidamente
-    ruleActivation2 = fmin(derivativeZero, errorNegative);     // Error grande y estable
-    ruleActivation3 = fmin(derivativePositive, errorNegative); // Error grande y aumentando rápidamente
-
-    ruleActivation4 = fmin(derivativeNegative, errorZero);     // Error pequeño y disminuyendo rápidamente
-    ruleActivation5 = fmin(derivativeZero, errorZero);         // Error pequeño y estable
-    ruleActivation6 = fmin(derivativePositive, errorZero);     // Error pequeño y aumentando rápidamente
-
-    ruleActivation7 = fmin(derivativeNegative, errorPositive); // Error grande en el otro sentido y disminuyendo rápidamente
-    ruleActivation8 = fmin(derivativeZero, errorPositive);     // Error grande en el otro sentido y estable
-    ruleActivation9 = fmin(derivativePositive, errorPositive); // Error grande en el otro sentido y aumentando rápidamente
-
-    // Calcular las salidas máximas para cada conjunto
-    maxNegativeOutput = fmax(ruleActivation1, ruleActivation2);
-    maxZeroOutput = fmax(ruleActivation3, ruleActivation4);
-    maxZeroOutput = fmax(maxZeroOutput,ruleActivation5);
-    maxZeroOutput = fmax(maxZeroOutput, ruleActivation6);
-    maxZeroOutput = fmax(maxZeroOutput, ruleActivation7);
-    maxPositiveOutput = fmax(ruleActivation8, ruleActivation9);
-
-  float denominator = maxNegativeOutput + maxZeroOutput + maxPositiveOutput;
-  if (denominator == 0) {
-    fuzzyControlOutput = 0;
-  } else {
-    fuzzyControlOutput = ((controlValueNegative * maxNegativeOutput) + 
-                          (controlValueZero * maxZeroOutput) + 
-                          (controlValuePositive * maxPositiveOutput)) / denominator;
-  }
+    // Limitar la salida
+    if (pid->output > pid->maxOutput) pid->output = pid->maxOutput;
+    else if (pid->output < -pid->maxOutput) pid->output = -pid->maxOutput;
 }
 
 
@@ -171,33 +106,33 @@ void setMotor(float vel, bool dir) {
     }
 }
 
-
+volatile uint16_t millisContador = 0;  // Para contar hasta 1000 ms
+volatile int16_t encoder;
 
 void temporizador_ISR(void) {
     millisContador++;  // Incrementar cada 1 ms
     if (millisContador >= 10) {  
-        millisContador = 0;  // Reiniciar conteo    
-        
+        millisContador = 0;  // Reiniciar conteo         
         encoder = theta;
-        error = (float)adcValue - (float)encoder;
-        errorInput = error;
-        
-        float deltaTime = 0.01; // Intervalo de tiempo en segundos (10 ms)
-        float derivative = (error - previousError) / deltaTime;
-        previousError = error;
-        derivativeInput = derivative;
-        
-        initializeMembershipFunctions();
-        // Ejecutar lógica difusa
-        fuzzyControl();
+//        adcValue = ADC_ChannelSelectAndConvert(0);
+        // Calcular el PID
+        PID_Calculate(&pid, (float)adcValue, (float)encoder);
 
         // Dirección
-        dir = (fuzzyControlOutput > 0) ? Forward : Backward;
-        pwmDuty = fabs(fuzzyControlOutput);
+        dir = (pid.output > 0) ? Forward : Backward;
+        pwmDuty = fabs(pid.output);
+        // Aplicar zona muerta
+//        if (pwmDuty < PWM_MIN_DEADZONE && pwmDuty != 0.0f) {
+//            pwmDuty = PWM_MIN_DEADZONE;
+//        }
 
         // Limitar el PWM
         if (pwmDuty > 800) pwmDuty = 800;
+
+        // Aplicar al motor
         setMotor(pwmDuty, dir);
+//        printf("theta: %u  setpoint:%u encoder: %u error: %0.2f error1: %0.2f leyControl: %.2f pwmDuty: %.2f dir: %u \n\r", 
+//                  theta, adcValue, encoder,error,error1, leyControl,pwmDuty,dir );
     }
        
     
@@ -244,6 +179,7 @@ int main(void)
     PWM1_16BIT_Enable();
     
     // Inicializar el PID
+    PID_Init(&pid, 35, 0.1, 1.8, 800, 0.01); // kp, ki, kd, maxOutput, dt
 
     char command[11];  // 10 caracteres + 1 para el '\0'
 
@@ -266,10 +202,9 @@ int main(void)
             }
         }
         
-        
-        
-        printf("theta: %d setPoint:%d encoder: %d error: %0.2f leyControl: %.2f pwm: %.2f\n\r", 
-                  theta, adcValue, encoder,error,fuzzyControlOutput,pwmDuty);
+        printf("theta: %d  setpoint:%d encoder: %d error: %0.2f "
+                "leyControl: %.2f pwmDuty: %.2f dir: %u \n\r", 
+                  theta, adcValue, encoder,pid.error,pid.output,pwmDuty,dir);
         
         __delay_ms(100); // Delay pequeño para suavizar cambios
     }    
